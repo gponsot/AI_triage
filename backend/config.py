@@ -20,6 +20,19 @@ def get_hf_model_id() -> str:
 
 
 @lru_cache
+def get_allowed_origins() -> list[str]:
+    defaults = [
+        "http://localhost:8501",
+        "http://127.0.0.1:8501",
+        "https://aihealthtriage.streamlit.app",
+    ]
+    raw = os.getenv("CORS_ORIGINS", "").strip()
+    if not raw:
+        return defaults
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+@lru_cache
 def get_hf_token() -> str:
     token = (
         os.getenv("HUGGINGFACEHUB_API_TOKEN")

@@ -1,40 +1,78 @@
-<<<<<<< HEAD
 # Medical Triage Multi-Agent Prototype
 
 LangGraph multi-agent clinical triage backend with FastAPI and a Streamlit demo UI.
+
+Live demo: [aihealthtriage.streamlit.app](https://aihealthtriage.streamlit.app/)
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    A[read_transcript] --> B[clinical_summarizer]
-    B -->|low urgency| D[decision_maker]
-    B -->|medium/high| C[human_review interrupt]
-    C --> D
-    D --> E[END]
+    UI[Streamlit Cloud] --> API[FastAPI on Render/Railway/etc.]
+    API --> HF[Hugging Face Inference API]
+    API --> CSV[MTS-Dialog CSV]
 ```
 
 | Component | Role |
 |-----------|------|
-| `read_transcript_node` | Loads MTS-Dialog `dialogue` by row index |
-| `clinical_summarizer_node` | Structured Llama extraction → `PatientClassification` |
-| `human_review_node` | `interrupt()` for doctor approval (medium/high urgency) |
-| `decision_maker_node` | Senior-doctor treatment decision report |
+| `frontend/app.py` | Streamlit UI (deployed to Streamlit Cloud) |
+| `backend/main.py` | FastAPI API (must be deployed separately) |
+| `clinical_summarizer_node` | Structured Llama extraction |
+| `human_review_node` | Doctor review + editable classification |
+| `decision_maker_node` | Treatment decision report |
 
-## Setup
+## Local setup
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate          # Windows
 pip install -r requirements.txt
-copy .env.example .env          # add HUGGINGFACEHUB_API_TOKEN (+ optional LangSmith keys)
+copy .env.example .env
 ```
 
-## Run backend
+Add your `HUGGINGFACEHUB_API_TOKEN` to `.env`.
+
+### Run locally
 
 ```bash
 uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+streamlit run frontend/app.py
 ```
+
+## Cloud deployment
+
+**Streamlit Cloud only runs the frontend.** FastAPI does not run inside Streamlit Cloud.
+
+### 1. Deploy the FastAPI backend (Render example)
+
+1. Push this repo to GitHub
+2. Create a [Render](https://render.com) **Web Service** from the repo
+3. Use `render.yaml` or set:
+   - **Build:** `pip install -r requirements.txt`
+   - **Start:** `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
+4. Add environment variables on Render:
+   - `HUGGINGFACEHUB_API_TOKEN` — your HF token
+   - `HF_MODEL_ID` — optional
+   - `CORS_ORIGINS` — `https://aihealthtriage.streamlit.app`
+5. Copy the public URL (e.g. `https://ai-triage-api.onrender.com`)
+
+### 2. Configure Streamlit Cloud
+
+In [Streamlit Cloud](https://share.streamlit.io/) app settings:
+
+- **Main file path:** `frontend/app.py`
+- **Secrets** (Settings → Secrets):
+
+```toml
+TRIAGE_API_URL = "https://your-fastapi-service.onrender.com"
+```
+
+Redeploy the Streamlit app after saving secrets.
+
+### 3. Verify
+
+- Backend health: `https://your-api-url/health`
+- Streamlit app should show your API URL under the title
+- If you see connection errors, check CORS and `TRIAGE_API_URL`
 
 ## API
 
@@ -44,25 +82,35 @@ uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 { "dialogue_index": 0 }
 ```
 
-Returns `status: "completed"` for low urgency, or `status: "awaiting_approval"` with `thread_id` when interrupted.
-
 ### `POST /approve_triage`
 
 ```json
-{ "thread_id": "<uuid>", "approved": true }
+{
+  "thread_id": "<uuid>",
+  "approved": true,
+  "classification": {
+    "urgency": "medium",
+    "patient_class": ["routine"],
+    "topic": "Back pain",
+    "summary": "..."
+  }
+}
 ```
 
-Resumes the graph into `decision_maker_node` and returns the final `decision_report`.
+### `POST /update_report`
 
-## Run Streamlit (optional)
-
-```bash
-streamlit run frontend/app.py
+```json
+{
+  "thread_id": "<uuid>",
+  "decision_report": "Edited report text..."
+}
 ```
 
 ## Data
 
-Clinical dialogues are loaded from the [MTS-Dialog validation set](https://raw.githubusercontent.com/abachaa/MTS-Dialog/main/Main-Dataset/MTS-Dialog-ValidationSet.csv) via pandas (`dialogue` column).
-=======
-# AI_triage
->>>>>>> 1becbec95f1e8713729ebd8a363b24c5bee7f6ee
+Clinical dialogues are loaded from the [MTS-Dialog validation set](https://raw.githubusercontent.com/abachaa/MTS-Dialog/main/Main-Dataset/MTS-Dialog-ValidationSet.csv) via pandas (`dialogue` column). The loader samples 20 rows per run.
+
+## Notes
+
+- Session state uses in-memory `MemorySaver`; triage threads reset if the API restarts or scales to multiple instances.
+- Free Render tiers sleep after inactivity; the first request may take 30–60 seconds.

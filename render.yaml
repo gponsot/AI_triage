@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: ai-triage-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: HUGGINGFACEHUB_API_TOKEN
+        sync: false
+      - key: HF_MODEL_ID
+        value: meta-llama/Meta-Llama-3-8B-Instruct
+      - key: CORS_ORIGINS
+        value: https://aihealthtriage.streamlit.app

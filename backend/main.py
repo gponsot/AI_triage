@@ -2,9 +2,11 @@ import uuid
 from typing import Any, Literal, Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
+from backend.config import get_allowed_origins
 from backend.data.loader import get_dialogue_count, list_observation_options
 from backend.graph.state import PatientClassification
 from backend.graph.triage_graph import build_triage_graph
@@ -13,6 +15,14 @@ app = FastAPI(
     title="Medical Triage Multi-Agent API",
     description="LangGraph-powered clinical triage with human-in-the-loop review.",
     version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_allowed_origins(),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 triage_graph = build_triage_graph()

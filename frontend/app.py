@@ -11,7 +11,15 @@ from dotenv import load_dotenv
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(_PROJECT_ROOT / ".env")
 
-API_BASE = os.getenv("TRIAGE_API_URL", "http://127.0.0.1:8000")
+
+def get_api_base() -> str:
+    """Resolve API URL for local .env or Streamlit Cloud secrets."""
+    try:
+        if "TRIAGE_API_URL" in st.secrets:
+            return str(st.secrets["TRIAGE_API_URL"]).rstrip("/")
+    except Exception:
+        pass
+    return os.getenv("TRIAGE_API_URL", "http://127.0.0.1:8000").rstrip("/")
 
 URGENCY_OPTIONS = ["low", "medium", "high"]
 PATIENT_CLASS_OPTIONS = ["routine", "pharmacist", "additional test", "urgent"]
@@ -201,8 +209,8 @@ def _render_transcript_card(transcript: str) -> None:
     )
 
 
-def _fetch_observations() -> list[dict]:
-    response = requests.get(f"{API_BASE}/dataset/observations", timeout=10)
+def _fetch_observations(api_base: str) -> list[dict]:
+    response = requests.get(f"{api_base}/dataset/observations", timeout=10)
     response.raise_for_status()
     return response.json()["observations"]
 
@@ -281,6 +289,14 @@ st.set_page_config(
 )
 _inject_styles()
 
+api_base = get_api_base()
+
+if api_base.startswith("http://127.0.0.1") or api_base.startswith("http://localhost"):
+    st.warning(
+        "Backend URL is still set to localhost. On Streamlit Cloud, add "
+        "`TRIAGE_API_URL` in **App settings → Secrets** pointing to your deployed FastAPI URL."
+    )
+
 st.markdown(
     """
     <div class="hero-strip">
@@ -291,12 +307,12 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-st.caption(f"API: `{API_BASE}`")
+st.caption(f"API: `{api_base}`")
 
 try:
-    observations = _fetch_observations()
+    observations = _fetch_observations(api_base)
 except requests.RequestException as exc:
-    st.error(f"Cannot reach backend at {API_BASE}: {exc}")
+    st.error(f"Cannot reach backend at {api_base}: {exc}")
     st.stop()
 
 if not observations:
@@ -322,7 +338,7 @@ dialogue_index = label_to_index[selected_label]
 if start_clicked:
     with st.spinner("Running triage agents..."):
         resp = requests.post(
-            f"{API_BASE}/start_triage",
+            f"{api_base}/start_triage",
             json={"dialogue_index": dialogue_index},
             timeout=300,
         )
@@ -362,7 +378,7 @@ with tab_review:
             if approval_payload:
                 with st.spinner("Generating decision report..."):
                     resp = requests.post(
-                        f"{API_BASE}/approve_triage",
+                        f"{api_base}/approve_triage",
                         json={
                             "thread_id": triage["thread_id"],
                             **approval_payload,
@@ -413,7 +429,7 @@ with tab_report:
             if st.button("Save Report Changes", use_container_width=True):
                 with st.spinner("Saving report..."):
                     resp = requests.post(
-                        f"{API_BASE}/update_report",
+                        f"{api_base}/update_report",
                         json={
                             "thread_id": triage["thread_id"],
                             "decision_report": edited_report,
