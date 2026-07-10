@@ -3,6 +3,7 @@
 import html
 import os
 import time
+import uuid
 from pathlib import Path
 
 import requests
@@ -303,6 +304,17 @@ def _render_classification_editor(classification: dict, thread_id: str) -> dict 
     }
 
 
+def _new_thread_id() -> str:
+    return str(uuid.uuid4())
+
+
+def _reset_session_for_selection(selected_label: str) -> None:
+    """Issue a fresh thread id whenever the user picks a different observation."""
+    st.session_state["thread_id"] = _new_thread_id()
+    st.session_state["selected_observation"] = selected_label
+    st.session_state.pop("triage", None)
+
+
 def _current_graph_step(triage: dict | None) -> str:
     if not triage:
         return "Idle — run **Start Triage** to execute the graph."
@@ -404,16 +416,28 @@ if not observations:
 labels = [str(item["label"]) for item in observations]
 label_to_index = {str(item["label"]): int(item["index"]) for item in observations}
 
+if "thread_id" not in st.session_state:
+    st.session_state["thread_id"] = _new_thread_id()
+if "selected_observation" not in st.session_state:
+    st.session_state["selected_observation"] = labels[0]
+
 control_left, control_right = st.columns([4, 1], gap="medium")
 with control_left:
     selected_label = st.selectbox(
         "Select clinical observation",
         options=labels,
-        index=0,
+        index=labels.index(st.session_state["selected_observation"])
+        if st.session_state["selected_observation"] in labels
+        else 0,
     )
 with control_right:
     st.write("")
     start_clicked = st.button("Start Triage", type="primary", use_container_width=True)
+
+if selected_label != st.session_state["selected_observation"]:
+    _reset_session_for_selection(selected_label)
+
+st.caption(f"Session thread ID: `{st.session_state['thread_id']}`")
 
 dialogue_index = label_to_index[selected_label]
 
@@ -423,7 +447,10 @@ if start_clicked:
             resp = _api_request(
                 "POST",
                 f"{api_base}/start_triage",
-                json={"dialogue_index": dialogue_index},
+                json={
+                    "dialogue_index": dialogue_index,
+                    "thread_id": st.session_state["thread_id"],
+                },
                 timeout=300,
             )
         st.session_state["triage"] = resp.json()
@@ -468,20 +495,21 @@ with tab_review:
                 triage["thread_id"],
             )
             if approval_payload:
-                with st.spinner("Generating decision report..."):
-                    resp = requests.post(
-                        f"{api_base}/approve_triage",
-                        json={
-                            "thread_id": triage["thread_id"],
-                            **approval_payload,
-                        },
-                        timeout=300,
-                    )
-                if resp.ok:
+                try:
+                    with st.spinner("Generating decision report..."):
+                        resp = _api_request(
+                            "POST",
+                            f"{api_base}/approve_triage",
+                            json={
+                                "thread_id": triage["thread_id"],
+                                **approval_payload,
+                            },
+                            timeout=300,
+                        )
                     st.session_state["triage"] = resp.json()
                     st.rerun()
-                else:
-                    st.error(resp.json().get("detail", resp.text))
+                except requests.RequestException as exc:
+                    st.error(f"Approval failed: {exc}")
         elif classification:
             _render_classification_card(classification)
         else:
@@ -519,21 +547,22 @@ with tab_report:
         save_col, _ = st.columns([1, 3])
         with save_col:
             if st.button("Save Report Changes", use_container_width=True):
-                with st.spinner("Saving report..."):
-                    resp = requests.post(
-                        f"{api_base}/update_report",
-                        json={
-                            "thread_id": triage["thread_id"],
-                            "decision_report": edited_report,
-                        },
-                        timeout=60,
-                    )
-                if resp.ok:
+                try:
+                    with st.spinner("Saving report..."):
+                        resp = _api_request(
+                            "POST",
+                            f"{api_base}/update_report",
+                            json={
+                                "thread_id": triage["thread_id"],
+                                "decision_report": edited_report,
+                            },
+                            timeout=60,
+                        )
                     st.session_state["triage"] = resp.json()
                     st.success("Report updated.")
                     st.rerun()
-                else:
-                    st.error(resp.json().get("detail", resp.text))
+                except requests.RequestException as exc:
+                    st.error(f"Could not save report: {exc}")
     elif status == "awaiting_approval":
         st.info(
             "The decision report will appear here after you review and approve "

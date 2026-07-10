@@ -1,4 +1,3 @@
-import uuid
 from typing import Any, Literal, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -39,6 +38,11 @@ class StartTriageRequest(BaseModel):
         ...,
         ge=0,
         description="0-based row index in the MTS-Dialog validation CSV.",
+    )
+    thread_id: str = Field(
+        ...,
+        min_length=1,
+        description="Client-generated UUID used as the LangGraph thread identifier.",
     )
 
 
@@ -172,7 +176,10 @@ def start_triage(request: StartTriageRequest) -> dict[str, Any]:
             ),
         )
 
-    thread_id = str(uuid.uuid4())
+    thread_id = request.thread_id.strip()
+    if not thread_id:
+        raise HTTPException(status_code=400, detail="thread_id is required.")
+
     initial_state = {
         "raw_transcript": "",
         "dialogue_index": request.dialogue_index,
