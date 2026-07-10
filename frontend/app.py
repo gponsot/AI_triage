@@ -2,6 +2,7 @@
 
 import html
 import os
+import time
 from pathlib import Path
 
 import requests
@@ -209,9 +210,29 @@ def _render_transcript_card(transcript: str) -> None:
     )
 
 
+def _api_request(method: str, url: str, **kwargs) -> requests.Response:
+    """Call the API with retries for Render free-tier cold starts."""
+    timeout = kwargs.pop("timeout", 120)
+    retries = kwargs.pop("retries", 3)
+    last_error: requests.RequestException | None = None
+
+    for attempt in range(retries):
+        try:
+            response = requests.request(method, url, timeout=timeout, **kwargs)
+            response.raise_for_status()
+            return response
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt < retries - 1:
+                time.sleep(5 * (attempt + 1))
+
+    if last_error is not None:
+        raise last_error
+    raise requests.RequestException("API request failed")
+
+
 def _fetch_observations(api_base: str) -> list[dict]:
-    response = requests.get(f"{api_base}/dataset/observations", timeout=10)
-    response.raise_for_status()
+    response = _api_request("GET", f"{api_base}/dataset/observations")
     return response.json()["observations"]
 
 
@@ -310,9 +331,17 @@ st.markdown(
 st.caption(f"API: `{api_base}`")
 
 try:
-    observations = _fetch_observations(api_base)
+    with st.spinner(
+        "Connecting to backend... Render free tier may take up to 60 seconds to wake up."
+    ):
+        observations = _fetch_observations(api_base)
 except requests.RequestException as exc:
     st.error(f"Cannot reach backend at {api_base}: {exc}")
+    st.info(
+        "If you're on Render's free tier, open "
+        f"[{api_base}/health]({api_base}/health) in a new tab to wake the API, "
+        "wait ~60 seconds, then refresh this page."
+    )
     st.stop()
 
 if not observations:
@@ -336,18 +365,19 @@ with control_right:
 dialogue_index = label_to_index[selected_label]
 
 if start_clicked:
-    with st.spinner("Running triage agents..."):
-        resp = requests.post(
-            f"{api_base}/start_triage",
-            json={"dialogue_index": dialogue_index},
-            timeout=300,
-        )
-    if not resp.ok:
-        st.error(resp.json().get("detail", resp.text))
+    try:
+        with st.spinner("Running triage agents..."):
+            resp = _api_request(
+                "POST",
+                f"{api_base}/start_triage",
+                json={"dialogue_index": dialogue_index},
+                timeout=300,
+            )
+        st.session_state["triage"] = resp.json()
+        st.session_state["selected_observation"] = selected_label
+    except requests.RequestException as exc:
+        st.error(f"Triage failed: {exc}")
         st.stop()
-
-    st.session_state["triage"] = resp.json()
-    st.session_state["selected_observation"] = selected_label
 
 triage = st.session_state.get("triage")
 if not triage:
