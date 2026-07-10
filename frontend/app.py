@@ -337,14 +337,9 @@ def _render_graph_tab(api_base: str, triage: dict | None) -> None:
             """,
             unsafe_allow_html=True,
         )
-        st.image(png_resp.content, use_container_width=True)
-
-        with st.expander("View Mermaid source"):
-            try:
-                mermaid_resp = _api_request("GET", f"{api_base}/graph/mermaid")
-                st.code(mermaid_resp.json()["mermaid"], language="text")
-            except requests.RequestException:
-                st.caption("Mermaid source unavailable.")
+        img_col = st.columns([1, 2, 1])[1]
+        with img_col:
+            st.image(png_resp.content, use_container_width=True)
 
     with info_col:
         st.markdown(
