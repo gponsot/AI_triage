@@ -3,6 +3,7 @@ from typing import Any, Literal, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
@@ -10,6 +11,11 @@ from backend.config import get_allowed_origins
 from backend.data.loader import get_dialogue_count, list_observation_options
 from backend.graph.state import PatientClassification
 from backend.graph.triage_graph import build_triage_graph
+from backend.graph.visualization import (
+    GRAPH_NODE_DETAILS,
+    get_triage_graph_png,
+    get_triage_mermaid,
+)
 
 app = FastAPI(
     title="Medical Triage Multi-Agent API",
@@ -132,6 +138,21 @@ def dataset_info() -> dict[str, int]:
 @app.get("/dataset/observations")
 def dataset_observations() -> dict[str, list[dict[str, int | str]]]:
     return {"observations": list_observation_options()}
+
+
+@app.get("/graph/mermaid")
+def graph_mermaid() -> dict[str, str]:
+    return {"mermaid": get_triage_mermaid()}
+
+
+@app.get("/graph/info")
+def graph_info() -> dict[str, list[dict[str, str]]]:
+    return {"nodes": GRAPH_NODE_DETAILS}
+
+
+@app.get("/graph/png")
+def graph_png() -> Response:
+    return Response(content=get_triage_graph_png(), media_type="image/png")
 
 
 @app.post("/start_triage")

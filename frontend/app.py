@@ -1,12 +1,14 @@
 """Medical triage demo dashboard."""
 
 import html
+import json
 import os
 import time
 from pathlib import Path
 
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -303,6 +305,80 @@ def _render_classification_editor(classification: dict, thread_id: str) -> dict 
     }
 
 
+def _current_graph_step(triage: dict | None) -> str:
+    if not triage:
+        return "Idle — run **Start Triage** to execute the graph."
+    if triage.get("status") == "awaiting_approval":
+        return "Paused at **human_review** (doctor editing classification)."
+    if triage.get("decision_report"):
+        return "Completed — graph reached **decision_maker** and finished."
+    return "In progress."
+
+
+def _render_graph_tab(api_base: str, triage: dict | None) -> None:
+    st.subheader("LangGraph Agent Workflow")
+    st.markdown(_current_graph_step(triage))
+
+    try:
+        with st.spinner("Loading graph visualization..."):
+            graph_resp = _api_request("GET", f"{api_base}/graph/mermaid")
+            info_resp = _api_request("GET", f"{api_base}/graph/info")
+            png_resp = _api_request("GET", f"{api_base}/graph/png")
+    except requests.RequestException as exc:
+        st.error(f"Could not load graph from API: {exc}")
+        return
+
+    mermaid = graph_resp.json()["mermaid"]
+    nodes = info_resp.json()["nodes"]
+
+    viz_col, info_col = st.columns([1.4, 1], gap="large")
+    with viz_col:
+        components.html(
+            f"""
+            <!DOCTYPE html>
+            <html>
+              <head>
+                <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+                <style>
+                  body {{
+                    font-family: sans-serif;
+                    margin: 0;
+                    padding: 0.5rem;
+                    background: #f8fafc;
+                  }}
+                </style>
+              </head>
+              <body>
+                <pre class="mermaid" id="graph-diagram"></pre>
+                <script>
+                  const diagram = {json.dumps(mermaid)};
+                  document.getElementById("graph-diagram").textContent = diagram;
+                  mermaid.initialize({{ startOnLoad: true, theme: "default" }});
+                </script>
+              </body>
+            </html>
+            """,
+            height=460,
+            scrolling=True,
+        )
+        with st.expander("View PNG export"):
+            st.image(png_resp.content, use_container_width=True)
+
+    with info_col:
+        st.markdown(
+            """
+            <div class="panel-card" style="min-height: auto;">
+                <div class="panel-title">Agent Nodes</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        for node in nodes:
+            st.markdown(f"**{node['agent']}** (`{node['node']}`)")
+            st.write(node["description"])
+            st.divider()
+
+
 st.set_page_config(
     page_title="Medical Triage Demo",
     page_icon="🩺",
@@ -380,11 +456,20 @@ if start_clicked:
         st.stop()
 
 triage = st.session_state.get("triage")
-if not triage:
-    st.info("Choose an observation from the dropdown and click **Start Triage**.")
-    st.stop()
 
-tab_review, tab_report = st.tabs(["Triage Review", "Decision Report"])
+tab_review, tab_report, tab_graph = st.tabs(
+    ["Triage Review", "Decision Report", "Agent Graph"]
+)
+
+with tab_graph:
+    _render_graph_tab(api_base, triage)
+
+if not triage:
+    with tab_review:
+        st.info("Choose an observation from the dropdown and click **Start Triage**.")
+    with tab_report:
+        st.info("Run triage to generate a clinical decision report.")
+    st.stop()
 
 with tab_review:
     if triage.get("status") == "awaiting_approval":
