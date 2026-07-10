@@ -1,14 +1,12 @@
 """Medical triage demo dashboard."""
 
 import html
-import json
 import os
 import time
 from pathlib import Path
 
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -321,48 +319,32 @@ def _render_graph_tab(api_base: str, triage: dict | None) -> None:
 
     try:
         with st.spinner("Loading graph visualization..."):
-            graph_resp = _api_request("GET", f"{api_base}/graph/mermaid")
             info_resp = _api_request("GET", f"{api_base}/graph/info")
             png_resp = _api_request("GET", f"{api_base}/graph/png")
     except requests.RequestException as exc:
         st.error(f"Could not load graph from API: {exc}")
         return
 
-    mermaid = graph_resp.json()["mermaid"]
     nodes = info_resp.json()["nodes"]
 
     viz_col, info_col = st.columns([1.4, 1], gap="large")
     with viz_col:
-        components.html(
-            f"""
-            <!DOCTYPE html>
-            <html>
-              <head>
-                <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-                <style>
-                  body {{
-                    font-family: sans-serif;
-                    margin: 0;
-                    padding: 0.5rem;
-                    background: #f8fafc;
-                  }}
-                </style>
-              </head>
-              <body>
-                <pre class="mermaid" id="graph-diagram"></pre>
-                <script>
-                  const diagram = {json.dumps(mermaid)};
-                  document.getElementById("graph-diagram").textContent = diagram;
-                  mermaid.initialize({{ startOnLoad: true, theme: "default" }});
-                </script>
-              </body>
-            </html>
+        st.markdown(
+            """
+            <div class="panel-card" style="min-height: auto; padding-bottom: 0.5rem;">
+                <div class="panel-title">Workflow Diagram</div>
+            </div>
             """,
-            height=460,
-            scrolling=True,
+            unsafe_allow_html=True,
         )
-        with st.expander("View PNG export"):
-            st.image(png_resp.content, use_container_width=True)
+        st.image(png_resp.content, use_container_width=True)
+
+        with st.expander("View Mermaid source"):
+            try:
+                mermaid_resp = _api_request("GET", f"{api_base}/graph/mermaid")
+                st.code(mermaid_resp.json()["mermaid"], language="text")
+            except requests.RequestException:
+                st.caption("Mermaid source unavailable.")
 
     with info_col:
         st.markdown(
