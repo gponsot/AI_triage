@@ -22,12 +22,22 @@ class PatientClassification(BaseModel):
     )
 
 
-class OverallState(TypedDict):
-    """Global LangGraph state for the medical triage workflow."""
+#class OverallState(TypedDict):
+   # """Global LangGraph state for the medical triage workflow."""
 
-    raw_transcript: str
-    dialogue_index: int
-    classification: Optional[dict]
-    decision_report: Optional[str]
-    requires_review: bool
-    human_approved: bool
+   # raw_transcript: str
+   # dialogue_index: int
+   # classification: Optional[dict]
+   # decision_report: Optional[str]
+    #requires_review: bool
+    #human_approved: bool
+class OverallState(BaseModel):
+
+""" The overall state decision based on Langraph state and triage workflow """
+
+raw_transcript : str
+dialogue_index : int | str
+classification :  PatientClassification | None = None 
+decision_report : str |None
+requires_review : bool = True
+human_approved : bool = False
